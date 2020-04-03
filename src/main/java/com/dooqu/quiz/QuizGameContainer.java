@@ -5,6 +5,7 @@ import com.dooqu.quiz.common.GameContainer;
 import com.dooqu.quiz.common.Client;
 import com.dooqu.quiz.common.Skill;
 import com.dooqu.quiz.data.Subject;
+import com.dooqu.quiz.skills.AnswerResponseSkill;
 import com.dooqu.quiz.skills.SubjectTTSSkill;
 import com.dooqu.quiz.skills.XiaoiceTTSSkill;
 import org.apache.ibatis.io.Resources;
@@ -80,6 +81,7 @@ public class QuizGameContainer extends GameContainer {
                 if(code == 0 && client.isGoingToLeave() == false && client.isOpen()) {
                     client.startASRSession();
                 }
+                this.close();
             }
         };
         skill.start();
@@ -102,7 +104,7 @@ public class QuizGameContainer extends GameContainer {
     }
 
     protected void onClientIntent(Client client, ASRIntent intent) {
-        new XiaoiceTTSSkill(intent.getAction() == currentSubject.getKey()? "恭喜你，答对了！" : "答错了，正确答案是，选项" + (currentSubject.getKey() + 1) + "。", client) {
+        new AnswerResponseSkill(currentSubject.getKey(), intent.getAction(), client) {
             @Override
             protected void onSkillComplete(int code, int skillIndex) {
                 super.onSkillComplete(code, skillIndex);

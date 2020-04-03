@@ -1,6 +1,7 @@
 package com.dooqu.quiz.common;
 
-import com.dooqu.quiz.utils.ThreadUtil;
+import com.dooqu.quiz.utils.StreamUtils;
+import com.dooqu.quiz.utils.ThreadUtils;
 
 import java.io.*;
 import java.lang.ref.WeakReference;
@@ -12,6 +13,9 @@ import java.util.logging.Logger;
 
 public abstract class Skill {
     static Logger logger = Logger.getLogger(Skill.class.getSimpleName());
+    static int bytesSizePerMillionSecond = 16;
+    static int FRAME_DATA_SIZE = bytesSizePerMillionSecond * 10;
+    static int FRAME_DATA_WRITE_TO_USER = 160 * 2;
 
     public static interface SkillCallback {
         void invoke(int skillIndex);
@@ -24,7 +28,7 @@ public abstract class Skill {
     protected LinkedHashSet<Client> sessionList;
     protected Thread consumeThread;
     protected long contentSizeTotal;
-    protected int contentCapacity;
+    protected int byteBufferSize;
     protected String skillId;
     protected SkillCallback callback;
 
@@ -36,7 +40,9 @@ public abstract class Skill {
         this(1280 * 32, clients);
     }
 
-    public Skill(long contentCapacity, Client... clients) {
+    public Skill(int byteBufferSize, Client... clients) {
+        skillId = UUID.randomUUID().toString().replace("-", "");
+        this.byteBufferSize = byteBufferSize;
         sessionList = new LinkedHashSet<Client>();
         contentSizeTotal = Long.MAX_VALUE;
         consumeThread = null;
@@ -54,8 +60,8 @@ public abstract class Skill {
         }
     }
 
-    protected void initStream() {
-        streamConsumer = new PipedInputStream(1280 * 32);
+    protected void initializePipedStream() {
+        streamConsumer = new PipedInputStream(byteBufferSize);
         try {
             streamPruducer = new PipedOutputStream(streamConsumer);
         } catch (IOException ex) {
@@ -110,6 +116,7 @@ public abstract class Skill {
         running = false;
     }
 
+
     protected boolean isRunning() {
         return running;
     }
@@ -117,12 +124,12 @@ public abstract class Skill {
 
     public void start() {
         if (isRunning()) {
-            stop();
+            close();
         }
+        initializePipedStream();
         if (onStart() == true) {
             running = true;
-            skillId = UUID.randomUUID().toString().replace("-", "");
-            initStream();
+            onBeforePushStream();
             pushSkillStream();
         }
     }
@@ -138,40 +145,26 @@ public abstract class Skill {
         @Override
         public void run() {
             super.run();
-            Skill skill = skillWeakReference.get();
-            if (skill == null) {
-                return;
-            }
-            skill.onBeforePushStream();
-            byte[] buffer = new byte[160];
+            byte[] buffer = new byte[FRAME_DATA_WRITE_TO_USER];
             int bytesReaded = -1;
-            int bytesTotal = 0;
-
+            int bytesReadedTotal = 0;
+            int sleepTimeTotal = 0;
+            long skillStartTime = System.currentTimeMillis();
+            Skill currentSkill = null;
             do {
-                skill = skillWeakReference.get();
-                if (skill == null) {
+                currentSkill = skillWeakReference.get();
+                if (currentSkill == null) {
                     break;
                 }
-                int bytesAvailable = 0;
                 try {
-                    bytesAvailable = skill.streamConsumer.available();
-                } catch (IOException ex) {
-                }
-                if (bytesAvailable <= 0) {
-                    ThreadUtil.safeSleep(5);
-                    continue;
-                }
-                try {
-                    bytesReaded = skill.streamConsumer.read(buffer, 0, buffer.length);
+                    bytesReaded = currentSkill.streamConsumer.read(buffer, 0, buffer.length);
                     if (bytesReaded > 0) {
-                        bytesTotal += bytesReaded;
-                        //System.out.println("consumer thread write to session" + bytesReaded + ",total=" + bytesTotal);
-                        synchronized (skill.sessionList) {
-                            if (skill.sessionList.size() <= 0) {
-                                //如果列表没有人了
-                                break;
+                        bytesReadedTotal += bytesReaded;
+                        synchronized (currentSkill.sessionList) {
+                            if (currentSkill.sessionList.size() <= 0) {
+                                break;  //have no clients.
                             }
-                            Iterator<Client> iterator = skill.sessionList.iterator();
+                            Iterator<Client> iterator = currentSkill.sessionList.iterator();
                             while (iterator.hasNext()) {
                                 Client currSession = iterator.next();
                                 if (currSession != null && currSession.isOpen()) {
@@ -179,76 +172,45 @@ public abstract class Skill {
                                 }
                             }
                         }
-                        if (skill.contentWriteComplete && bytesTotal >= skill.contentSizeTotal) {
+                        if (currentSkill.contentWriteComplete && bytesReadedTotal >= currentSkill.contentSizeTotal) {
+                            //如果生产线程的数据已经全部写入 && 当前从生产者线程读到的数据数量 == contentSizeTotal
+                            //那么说明全部数据都已经读取完成。
                             break;
-                        } else {
-                            ThreadUtil.safeSleep(9);
+                        }
+                        else {
+/*                            long timeSpan = System.currentTimeMillis() - skillStartTime;
+                            long bytesShouldWrited = timeSpan * 16;
+                            long bytesModified = bytesReadedTotal - bytesShouldWrited;
+                            if(bytesModified > 16) {
+                                long sleetTime = (long)Math.ceil((double)bytesModified / 16d);
+                                sleepTimeTotal += sleetTime;
+                                System.out.println("timeSpan=" + timeSpan + ", bytesShouldWrited=" + bytesShouldWrited + ", bytesReadedTotal=" + bytesReadedTotal + ", bytesModified=" + (bytesModified) + ",sleepTime=" + sleetTime);
+                                ThreadUtil.safeSleep(sleetTime);
+                            }
+                            else {
+                                System.out.println("not sleept");
+                            }*/
+                            long timeUseTotal = (long) ((double) bytesReadedTotal / (double) bytesSizePerMillionSecond);
+                            long timeSpanNow = System.currentTimeMillis() - skillStartTime;
+                            long timeDiff = timeUseTotal - timeSpanNow;
+                            if (timeDiff > 0) {
+                                ThreadUtils.safeSleep(timeDiff);
+                            }
                         }
                     }
                 } catch (IOException ex) {
+                    logger.log(Level.WARNING, "error at thread that write data to client: " + ex.toString());
                     break;
                 }
-            } while (skill.isRunning());
-            boolean isRunning = skill.isRunning();
-            skill.stopRunning();//让生产者那边停止写入
-            skill.onSkillComplete(skill.contentWriteComplete ? 0 : (isRunning) ? -1 : 1, 0);
+            } while (currentSkill.isRunning() && bytesReaded != -1);
+            System.out.println("consumer thread over: TimeSpanTotal=" + (System.currentTimeMillis() - skillStartTime) + ",bytesReadedTotal=" + bytesReadedTotal + ",sleepTimeTotal=" + sleepTimeTotal);
+            boolean isRunning = currentSkill.isRunning();
+            currentSkill.stopRunning();//让生产者那边停止写入
+            currentSkill.onSkillComplete(currentSkill.contentWriteComplete ? 0 : (isRunning) ? -1 : 1, 0);
         }
     }
 
     protected void pushSkillStream() {
-        /*consumeThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                onBeforSkillStreamPush();
-                byte[] buffer = new byte[160];
-                int bytesReaded = -1;
-                int bytesTotal = 0;
-
-                do {
-                    int bytesAvailable = 0;
-                    try {
-                        bytesAvailable = streamConsumer.available();
-                    } catch (IOException ex) {
-                    }
-                    if (bytesAvailable <= 0) {
-                        ThreadUtil.safeSleep(5);
-                        continue;
-                    }
-                    try {
-                        bytesReaded = streamConsumer.read(buffer, 0, buffer.length);
-                        if (bytesReaded > 0) {
-                            bytesTotal += bytesReaded;
-                            System.out.println("consumer thread write to session" + bytesReaded + ",total=" + bytesTotal);
-                            synchronized (sessionList) {
-                                if (sessionList.size() <= 0) {
-                                    //如果列表没有人了
-                                    break;
-                                }
-                                Iterator<Client> iterator = sessionList.iterator();
-                                while (iterator.hasNext()) {
-                                    Client currSession = iterator.next();
-                                    if (currSession != null && currSession.isOpen()) {
-                                        currSession.sendBinary(buffer, 0, bytesReaded);
-                                    }
-                                }
-                            }
-                            if (contentWriteComplete && bytesTotal >= contentSizeTotal) {
-                                break;
-                            }
-                            else {
-                                ThreadUtil.safeSleep(9);
-                            }
-                        }
-                    } catch (IOException ex) {
-                        break;
-                    }
-                } while (isRunning());
-                boolean isRunning = isRunning();
-                stopRunning();//让生产者那边停止写入
-                onSkillComplete(contentWriteComplete? 0 : (isRunning)? -1 : 1, 0);
-
-            }
-        });*/
         consumeThread = new SkillConsumerThread(this);
         consumeThread.start();
     }
@@ -267,25 +229,19 @@ public abstract class Skill {
         }
     }
 
-    public void stop() {
+    public void close() {
         System.out.println("stop");
         stopRunning();
-        if (consumeThread != null) {
-            try {
-                consumeThread.join();
-            } catch (InterruptedException ex) {
-            }
-        }
+        ThreadUtils.safeJoin(consumeThread);
         onStop();
         sessionList.clear();
-        try {
-            streamPruducer.close();
-        } catch (IOException ex) {
-        }
+        StreamUtils.safeClose(streamPruducer);
+        StreamUtils.safeClose(streamConsumer);
+    }
 
-        try {
-            streamConsumer.close();
-        } catch (IOException ex) {
-        }
+    @Override
+    protected void finalize() throws Throwable {
+        super.finalize();
+        logger.log(Level.INFO, "Skill.finalize()");
     }
 }

@@ -8,7 +8,6 @@ import java.io.FileNotFoundException;
 import com.dooqu.quiz.common.Client;
 import com.dooqu.quiz.common.Skill;
 import com.dooqu.quiz.utils.StreamUtils;
-import com.dooqu.quiz.utils.ThreadUtil;
 
 public class PlayPCMFileSkill extends Skill {
     protected String filePath;

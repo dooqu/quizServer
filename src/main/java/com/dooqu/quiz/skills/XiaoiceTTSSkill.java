@@ -3,16 +3,13 @@ package com.dooqu.quiz.skills;
 import com.dooqu.quiz.common.Client;
 import com.dooqu.quiz.common.Skill;
 import com.dooqu.quiz.utils.StreamUtils;
-import javazoom.spi.mpeg.sampled.file.MpegAudioFileReader;
 import okhttp3.*;
 import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
 import java.io.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -70,7 +67,6 @@ public class XiaoiceTTSSkill extends Skill {
                 if (response.isSuccessful()) {
                     String string = response.body().string();
                     JSONArray jsonArray = null;
-
                     try {
                         jsonArray = new JSONArray(string);
                         JSONObject o1 = jsonArray.getJSONObject(0);
@@ -81,6 +77,7 @@ public class XiaoiceTTSSkill extends Skill {
                     } catch (JSONException ex) {
                     }
                 }
+                //如果下载失败，关闭服务
                 stopRunning();
             }
         });
@@ -99,37 +96,24 @@ public class XiaoiceTTSSkill extends Skill {
 
             @Override
             public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
-                InputStream is = response.body().byteStream();
-                MpegAudioFileReader mpegAudioFileReader = new MpegAudioFileReader();
-                AudioInputStream mpegStream = null;
-                AudioInputStream pcmStream = null;
+                InputStream downloadInputStream = response.body().byteStream();
+                setContentSize(false, response.body().contentLength());
                 try {
-                    //mpegStream = mpegAudioFileReader.getAudioInputStream(is);
-                    //AudioFormat targetFormat = new AudioFormat(AudioFormat.Encoding.PCM_SIGNED, 16000, 16, 1, 2, 16000, false);
-                    //pcmStream = AudioSystem.getAudioInputStream(targetFormat, mpegStream);
-                    //AudioSystem.write(pcmStream, AudioFileFormat.Type.WAVE, new File("/home/jack/comp.pcm"));
                     byte[] buffer = new byte[160 * 8];
                     int perBytesReaded = 0;
                     int bytesTotal = 0;
                     do {
-                        perBytesReaded = is.read(buffer, 0, buffer.length);
+                        perBytesReaded = downloadInputStream.read(buffer, 0, buffer.length);
                         if (perBytesReaded > 0) {
                             bytesTotal += perBytesReaded;
-                            setContentSize(false, bytesTotal);
-                            //System.out.println("read from source:" + perBytesReaded + ",total=" + bytesTotal );
                             produceSkillData(buffer, 0, perBytesReaded);
-                        } else {
-                            setContentSize(true, bytesTotal);
-                            break;
                         }
-                    } while (isRunning() && perBytesReaded > 0);
-                    System.out.println("All data write to pipe.");
-                } catch (Exception ex) {
-                    System.out.println(ex.toString());
+                    } while (isRunning() && perBytesReaded != -1);
+                    setContentSize(true, bytesTotal);
+                    System.out.println("All download data have been writed to the piped buffer");
+                } catch (IOException ex) {
                 } finally {
-                    StreamUtils.safeClose(is);
-                    StreamUtils.safeClose(mpegStream);
-                    StreamUtils.safeClose(pcmStream);
+                    StreamUtils.safeClose(downloadInputStream);
                 }
             }
         });
