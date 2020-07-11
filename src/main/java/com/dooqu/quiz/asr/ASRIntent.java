@@ -5,7 +5,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ASRIntent {
-    static Pattern[] patterns = {Pattern.compile("(选择|选|选项|第)(?<indexString>[1-5a-eA-E一二三四五])")
+    private static class ASRResult {
+        public String indexString;
+        public String matchString;
+
+        public ASRResult(String indexString, String matchString) {
+            this.indexString = indexString;
+            this.matchString = matchString;
+        }
+    }
+    static Pattern[] patterns = {Pattern.compile("(选择|选|选项|第)(?<indexString>[1-5a-eA-E一二三四五])(个|项)?")
             , Pattern.compile("(?<indexString>最后一个)"), Pattern.compile("(?<indexString>[1-5a-eA-E一二三四五])")};
     static HashMap<String, Integer> indexMaps = new HashMap<>();
 
@@ -39,6 +48,8 @@ public class ASRIntent {
     }
 
     protected int action;
+    protected String actionString;
+    protected String matchedString;
 
     public ASRIntent() {
     }
@@ -51,35 +62,58 @@ public class ASRIntent {
         action = code;
     }
 
+    public String getActionString() {
+        return this.actionString;
+    }
+
+    protected void setActionString(String actionString) {
+        this.actionString = actionString;
+    }
+
+    public String getMatchedString() {
+        return matchedString;
+    }
+
+    protected void setMatchedString (String matchedString){
+        this.matchedString = matchedString;
+    }
+
     public static ASRIntent parse(String text) {
         ASRIntent intent = new ASRIntent();
         intent.setAction(-1);
-        intent.setAction(matchASRIntIndex(matchASRStringIndex(text)));
+        intent.setActionString(text);
+        ASRResult asrResult = matchASRStringIndex(text);
+        if(asrResult != null) {
+            intent.setAction(matchASRIntIndex(asrResult));
+            intent.setMatchedString(asrResult.matchString);
+        }
         return intent;
     }
 
-    protected static String matchASRStringIndex(String userInput) {
+    protected static ASRResult matchASRStringIndex(String userInput) {
         //Pattern pattern = Pattern.compile("(选择|选)?(第)?(?<index>[1-5a-eA-E一二三四五]{1})(个|选项)?");
         String indexString = null;
+        String matchString = null;
         for (int i = 0; i < patterns.length; i++) {
             Matcher matcher = patterns[i].matcher(userInput);
             while (matcher.find()) {
                 indexString = matcher.group("indexString");
+                matchString = matcher.group(0);
                 //System.out.println("index=" + matcher.group("indexString"));
             }
             if (indexString != null) {
-                return indexString;
+                return new ASRResult(indexString, matchString);
             }
         }
-        return indexString;
+        return null;
     }
 
-    protected static int matchASRIntIndex(String indexString) {
-        if (indexString == null) {
+    protected static int matchASRIntIndex(ASRResult asrResult) {
+        if (asrResult == null) {
             return -1;
         }
-        if (indexMaps.containsKey(indexString)) {
-            return indexMaps.get(indexString);
+        if (indexMaps.containsKey(asrResult.indexString)) {
+            return indexMaps.get(asrResult.indexString);
         }
         return -1;
     }

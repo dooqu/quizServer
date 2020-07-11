@@ -22,8 +22,7 @@ public class GameContainer implements Container{
     public void onSessionBinaryData(Client session, byte[] byteArray) {
     }
 
-    public void onSessionASRResult(Client client, boolean success, String asrResultString) {
-
+    public void onSessionASRResult(Client client, boolean success, boolean isFinalResult, String asrResultString) {
     }
 
     public void onSessionTextData(Client client, String dataString) {

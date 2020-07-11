@@ -9,7 +9,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import javax.sound.sampled.AudioInputStream;
 import java.io.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,8 +23,8 @@ public class XiaoiceTTSSkill extends Skill {
     OkHttpClient client;
     Call requestCall;
 
-    public XiaoiceTTSSkill(String messageText, Client... sessions) {
-        super(sessions);
+    public XiaoiceTTSSkill(String messageText, int milliSecondsDelay, Client... sessions) {
+        super(0, sessions);
         this.messageText = messageText;
     }
 

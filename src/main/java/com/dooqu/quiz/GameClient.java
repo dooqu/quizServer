@@ -29,13 +29,16 @@ public class GameClient extends Client {
     public GameClient() {
         asrProvider = new ASRProvider() {
             @Override
-            protected void onASRResult(boolean success, String resultString) {
-                super.onASRResult(success, resultString);
+            protected void onASRResult(boolean success, int status, String resultString) {
+                //super.onASRResult(success, isFinalResult, resultString);
                 GameContainer currentGameGameContainer = getGameContainer();
+                System.out.println("GameClient.onASRProvider.onASRRult()");
                 if (currentGameGameContainer != null && isOpen()) {
-                    currentGameGameContainer.onSessionASRResult(GameClient.this, success, (success) ? resultString : null);
+                    currentGameGameContainer.onSessionASRResult(GameClient.this, success, status == 2, (success) ? resultString : null);
                 }
-                sendText("ASR 0");
+                if(status == 2) {
+                    sendText("ASR 0");
+                }
             }
 
             @Override

@@ -9,7 +9,7 @@ public class WelcomeSkill extends XiaoiceTTSSkill {
     static String[] bytes = new String[]{"选手们准备好，竞赛马上开始了！", "准备好了吗！精彩比赛马上开始！", "玩家已经就绪！准备开始比赛！"};
 
     public WelcomeSkill(Client... sessions) {
-        super(generateRandomBye(), sessions);
+        super(generateRandomBye(), 0, sessions);
     }
 
     static String generateRandomBye() {

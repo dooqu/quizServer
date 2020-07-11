@@ -7,7 +7,9 @@ import java.io.*;
 import java.lang.ref.WeakReference;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.Timer;
 import java.util.UUID;
+import java.util.concurrent.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -16,10 +18,8 @@ public abstract class Skill {
     static int bytesSizePerMillionSecond = 16;
     static int FRAME_DATA_SIZE = bytesSizePerMillionSecond * 10;
     static int FRAME_DATA_WRITE_TO_USER = 160 * 2;
+    private static ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(5);
 
-    public static interface SkillCallback {
-        void invoke(int skillIndex);
-    }
 
     protected PipedOutputStream streamPruducer;
     protected PipedInputStream streamConsumer;
@@ -30,19 +30,21 @@ public abstract class Skill {
     protected long contentSizeTotal;
     protected int byteBufferSize;
     protected String skillId;
-    protected SkillCallback callback;
+    protected int milliSecondsCompleteDelay;
+    protected Future timerFuture;
 
     public Skill() {
-        this(1280 * 32, null);
+        this(1280 * 32, 0, null);
     }
 
-    public Skill(Client... clients) {
-        this(1280 * 32, clients);
+    public Skill(int milliSecondsCompleteDelay, Client... clients) {
+        this(1280 * 32, milliSecondsCompleteDelay, clients);
     }
 
-    public Skill(int byteBufferSize, Client... clients) {
+    public Skill(int byteBufferSize, int millinDelay, Client... clients) {
         skillId = UUID.randomUUID().toString().replace("-", "");
         this.byteBufferSize = byteBufferSize;
+        this.milliSecondsCompleteDelay = millinDelay;
         sessionList = new LinkedHashSet<Client>();
         contentSizeTotal = Long.MAX_VALUE;
         consumeThread = null;
@@ -206,14 +208,51 @@ public abstract class Skill {
             System.out.println("consumer thread over: TimeSpanTotal=" + (System.currentTimeMillis() - skillStartTime) + ",bytesReadedTotal=" + bytesReadedTotal + ",sleepTimeTotal=" + sleepTimeTotal);
             boolean isRunning = currentSkill.isRunning();
             currentSkill.stopRunning();//让生产者那边停止写入
-            currentSkill.onSkillComplete(currentSkill.contentWriteComplete ? 0 : (isRunning) ? -1 : 1, 0);
+            currentSkill.onSkillCompleteProcess(currentSkill.contentWriteComplete ? 0 : (isRunning) ? -1 : 1, 0);
         }
     }
+
 
     protected void pushSkillStream() {
         consumeThread = new SkillConsumerThread(this);
         consumeThread.start();
     }
+
+
+    static class SkillRunnable implements Runnable {
+        WeakReference<Skill> skillWeakReference;
+        int code;
+        int skillIndex;
+
+        public SkillRunnable(Skill skill, int code, int skillIndex) {
+            skillWeakReference = new WeakReference<>(skill);
+            this.code = code;
+            this.skillIndex = skillIndex;
+        }
+
+        @Override
+        public void run() {
+            Skill skill = skillWeakReference.get();
+            if (skill != null) {
+                skill.onSkillComplete(code, skillIndex);
+            }
+        }
+    }
+
+
+    private void onSkillCompleteProcess(int code, int skillIndex) {
+        if (milliSecondsCompleteDelay <= 0 || isRunning() == false) {
+            onSkillComplete(code, skillIndex);
+        }
+        else {
+            if (timerFuture == null) {
+                timerFuture = scheduledExecutorService.schedule(new SkillRunnable(this, code, skillIndex),
+                        milliSecondsCompleteDelay,
+                        TimeUnit.MILLISECONDS);
+            }
+        }
+    }
+
 
     protected void onSkillComplete(int code, int skillIndex) {
         logger.log(Level.INFO, this.toString() + ".onSkillComplete(code=" + code + ", skillIndex=" + skillIndex);
@@ -233,6 +272,13 @@ public abstract class Skill {
         System.out.println("stop");
         stopRunning();
         ThreadUtils.safeJoin(consumeThread);
+        if (timerFuture != null && timerFuture.isDone() == false) {
+            boolean canceld = timerFuture.cancel(true);
+            timerFuture = null;
+            if (canceld) {
+                this.onSkillComplete(-1, 0);
+            }
+        }
         onStop();
         sessionList.clear();
         StreamUtils.safeClose(streamPruducer);

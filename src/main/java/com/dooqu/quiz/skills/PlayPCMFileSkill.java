@@ -13,7 +13,7 @@ public class PlayPCMFileSkill extends Skill {
     protected String filePath;
 
     public PlayPCMFileSkill(String localFilePath, Client... clients) {
-        super(clients);
+        super(0, clients);
         this.filePath = localFilePath;
     }
 

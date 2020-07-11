@@ -10,7 +10,7 @@ public class SayByeSkill extends XiaoiceTTSSkill{
     static String[] bytes = new String[]{"好的，我也准备学习了，拜拜", "好的，拜拜", "正好我有也有事，先下了"};
 
     public SayByeSkill(Client... sessions) {
-        super(generateRandomBye(), sessions);
+        super(generateRandomBye(), 0, sessions);
     }
 
     static String generateRandomBye() {

@@ -93,32 +93,38 @@ public class QuizGameContainer extends GameContainer {
     }
 
     @Override
-    public void onSessionASRResult(Client client, boolean success, String asrResultString) {
-        logger.log(Level.INFO, "onSessionASRResult:" + client.getId() + ",asrResultString = " + asrResultString);
-        super.onSessionASRResult(client, success, asrResultString);
+    public void onSessionASRResult(Client client, boolean success, boolean isFinalResult, String asrResultString) {
+        System.out.println("QuizGameContainer.onSessionASRResult:" + client.getId() + ",asrResultString = " + asrResultString);
         if(success == false || client.isOpen() == false || client.isGoingToLeave()) {
+            System.out.println("客户端已经离开");
             return;
         }
         ASRIntent intent = ASRIntent.parse(asrResultString);
-        onClientIntent(client,intent);
+        onClientIntent(client, isFinalResult, intent);
     }
 
-    protected void onClientIntent(Client client, ASRIntent intent) {
-        new AnswerResponseSkill(currentSubject.getKey(), intent.getAction(), client) {
-            @Override
-            protected void onSkillComplete(int code, int skillIndex) {
-                super.onSkillComplete(code, skillIndex);
-                if(code == 0 && client.isOpen() && client.isGoingToLeave() == false) {
-                    if(index >= 5) {
-                        client.sendText("STP");
-                        index = 0;
-                    }
-                    else {
-                        onGameStart(client);
+    protected void onClientIntent(Client client, boolean isFinalResult, ASRIntent intent) {
+        long startTime = System.currentTimeMillis();
+        client.sendText("URS " + intent.getAction() + " " + (isFinalResult? intent.getMatchedString() : intent.getActionString()));
+        System.out.println("QuizGameContainer.onClientIntent: isFinalResult=" + isFinalResult + "intent=" + intent.getActionString());
+        if(isFinalResult) {
+            System.out.println("公布答案");
+            new AnswerResponseSkill(currentSubject.getKey(), intent.getAction(), client) {
+                @Override
+                protected void onSkillComplete(int code, int skillIndex) {
+                    super.onSkillComplete(code, skillIndex);
+                    if (code == 0 && client.isOpen() && client.isGoingToLeave() == false) {
+                        if (index >= 5) {
+                            client.sendText("STP");
+                            index = 0;
+                        }
+                        else {
+                            onGameStart(client);
+                        }
                     }
                 }
-            }
-        }.start();
+            }.start();
+        }
     }
 
     @Override

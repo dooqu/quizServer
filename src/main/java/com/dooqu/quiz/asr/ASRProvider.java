@@ -125,7 +125,8 @@ public class ASRProvider extends WebSocketListener {
         if (firstFrame) {
             firstFrame = false;
             sendFirstPCMFrame(buffer, size);
-        } else {
+        }
+        else {
             sendIntermediatePCMFrame(buffer, size);
         }
     }
@@ -165,7 +166,7 @@ public class ASRProvider extends WebSocketListener {
     @Override
     public void onMessage(WebSocket webSocket, String text) {
         super.onMessage(webSocket, text);
-        System.out.println(text);
+        System.out.println("识别ing: " + text);
 
         ResponseData resp = json.fromJson(text, ResponseData.class);
         if (resp != null) {
@@ -177,28 +178,28 @@ public class ASRProvider extends WebSocketListener {
             if (resp.getData() != null) {
                 if (resp.getData().getResult() != null) {
                     Text te = resp.getData().getResult().getText();
-                    //System.out.println(te.toString());
+                    System.out.println(te.toString());
                     try {
                         decoder.decode(te);
                         System.out.println("中间识别结果 ==》" + decoder.toString());
+                        onASRResult(true, resp.getData().getStatus(), decoder.toString());
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
                 }
                 if (resp.getData().getStatus() == 2) {
                     // todo  resp.data.status ==2 说明数据全部返回完毕，可以关闭连接，释放资源
-                    System.out.println("session end ");
                     dateEnd = new Date();
                     System.out.println(sdf.format(dateBegin) + "开始");
                     System.out.println(sdf.format(dateEnd) + "结束");
                     System.out.println("耗时:" + (dateEnd.getTime() - dateBegin.getTime()) + "ms");
                     System.out.println("最终识别结果 ==》" + decoder.toString());
                     System.out.println("本次识别sid ==》" + resp.getSid());
-                    onASRResult(true, decoder.toString());
                     decoder.discard();
                     connected = false;
-                    //webSocket.close(1006, "");
-                } else {
+                    //onASRResult(true, resp.getData().getStatus(), decoder.toString());
+                }
+                else {
                     // todo 根据返回的数据处理
                 }
             }
@@ -206,8 +207,8 @@ public class ASRProvider extends WebSocketListener {
     }
 
 
-    protected void onASRResult(boolean success, String resultString) {
-        System.out.println("onResult:" + resultString);
+    protected void onASRResult(boolean success, int status, String resultString) {
+        System.out.println("ASProvider.onASRResult:" + status + "," + resultString);
     }
 
     @Override
@@ -227,7 +228,7 @@ public class ASRProvider extends WebSocketListener {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
-        onASRResult(false, null);
+        onASRResult(false, 0, null);
     }
 
 
